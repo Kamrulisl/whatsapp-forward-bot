@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Forwarding Bot - Login</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 20px; }
+        .container { background: white; border-radius: 20px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); max-width: 500px; width: 100%; padding: 40px; }
+        .header { text-align: center; margin-bottom: 40px; }
+        .header h1 { color: #333; font-size: 28px; margin-bottom: 10px; }
+        .header p { color: #666; font-size: 14px; }
+        .login-section { display: none; }
+        .login-section.active { display: block; }
+        .qr-container { text-align: center; margin: 30px 0; }
+        #qrCode { max-width: 300px; width: 100%; height: auto; border: 3px solid #667eea; border-radius: 10px; padding: 10px; }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .button { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: all 0.3s; margin-top: 15px; }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4); }
+        .btn-danger { background: #ff6b6b; color: white; }
+        .btn-danger:hover { background: #ee5a52; }
+        .status { text-align: center; padding: 15px; border-radius: 8px; margin: 15px 0; font-weight: bold; }
+        .status.connecting { background: #fff3cd; color: #856404; }
+        .status.connected { background: #d4edda; color: #155724; }
+        .instructions { background: #f8f9fa; border-left: 4px solid #667eea; padding: 15px; border-radius: 5px; margin: 20px 0; font-size: 14px; color: #333; line-height: 1.6; }
+        .info-box { background: #e7f3ff; border-left: 4px solid #2196F3; padding: 15px; border-radius: 5px; margin: 15px 0; font-size: 14px; color: #0c5aa0; }
+        .user-id { background: #f0f0f0; padding: 10px; border-radius: 5px; margin: 15px 0; word-break: break-all; font-size: 12px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 WhatsApp Forward Bot</h1>
+            <p>আপনার WhatsApp অ্যাকাউন্ট লিংক করুন</p>
+        </div>
+
+        <div class="login-section active" id="loginSection">
+            <button class="button btn-primary" onclick="startLogin()">📱 লগইন করুন</button>
+            <p style="text-align: center; color: #999; font-size: 12px; margin-top: 10px;">প্রথম বার লগইন করতে এই বাটনে ক্লিক করুন</p>
+        </div>
+
+        <div class="login-section" id="qrSection">
+            <div class="instructions">
+                <strong>📸 QR কোড স্ক্যান করুন:</strong><br>
+                1. আপনার ফোনে WhatsApp খুলুন<br>
+                2. সেটিংস → Linked Devices<br>
+                3. "Link a Device" বাটন দিন<br>
+                4. এই QR কোড স্ক্যান করুন
+            </div>
+            <div class="qr-container">
+                <div id="qrLoading" style="text-align: center; padding: 30px; color: #999;">
+                    <div class="spinner"></div> QR কোড লোড হচ্ছে...
+                </div>
+                <img id="qrCode" style="display: none;">
+            </div>
+            <div class="status connecting">⏳ সংযোগ করছি...</div>
+            <button class="button btn-danger" onclick="cancelLogin()">❌ বাতিল করুন</button>
+        </div>
+
+        <div class="login-section" id="connectedSection">
+            <div class="status connected">✅ সফলভাবে সংযুক্ত!</div>
+            <div class="info-box">আপনার বট এখন সক্রিয়। যখন আপনার WhatsApp-এ কোনো মেসেজ আসবে যেখানে সেট করা কীওয়ার্ড থাকবে, তখন তা স্বয়ংক্রিয়ভাবে ফরওয়ার্ড হবে।</div>
+            <div class="user-id"><strong>ব্যবহারকারী আইডি:</strong> <span id="displayUserId"></span></div>
+            <button class="button btn-danger" onclick="logout()" style="margin-top: 20px;">🚪 লগআউট করুন</button>
+        </div>
+    </div>
+
+    <script>
+        let currentUserId = null;
+        async function startLogin() {
+            try {
+                const response = await fetch('/api/login/start', { method: 'POST' });
+                const data = await response.json();
+                currentUserId = data.userId;
+                localStorage.setItem('userId', currentUserId);
+                document.getElementById('loginSection').classList.remove('active');
+                document.getElementById('qrSection').classList.add('active');
+                startQRPolling();
+                startStatusChecking();
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+        function startQRPolling() {
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/login/qr/${currentUserId}`);
+                    const data = await response.json();
+                    if (data.qr) {
+                        document.getElementById('qrLoading').style.display = 'none';
+                        document.getElementById('qrCode').src = data.qr;
+                        document.getElementById('qrCode').style.display = 'block';
+                    }
+                } catch (error) {
+                    console.error('Error fetching QR code:', error);
+                }
+            }, 1000);
+            window.qrPollInterval = interval;
+        }
+        function startStatusChecking() {
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/login/status/${currentUserId}`);
+                    const data = await response.json();
+                    if (data.connected) {
+                        clearInterval(window.qrPollInterval);
+                        clearInterval(interval);
+                        showConnectedView();
+                    }
+                } catch (error) {
+                    console.error('Error checking status:', error);
+                }
+            }, 2000);
+        }
+        function showConnectedView() {
+            document.getElementById('qrSection').classList.remove('active');
+            document.getElementById('connectedSection').classList.add('active');
+            document.getElementById('displayUserId').textContent = currentUserId;
+        }
+        function cancelLogin() {
+            if (currentUserId) fetch(`/api/logout/${currentUserId}`, { method: 'POST' }).catch(console.error);
+            currentUserId = null;
+            localStorage.removeItem('userId');
+            location.reload();
+        }
+        function logout() {
+            if (confirm('আপনি কি সত্যিই লগআউট করতে চান?')) {
+                fetch(`/api/logout/${currentUserId}`, { method: 'POST' }).then(() => location.reload());
+            }
+        }
+        window.addEventListener('load', async () => {
+            const savedUserId = localStorage.getItem('userId');
+            if (savedUserId) {
+                currentUserId = savedUserId;
+                try {
+                    const response = await fetch(`/api/login/status/${currentUserId}`);
+                    const data = await response.json();
+                    if (data.connected) showConnectedView();
+                } catch (error) {
+                    console.error('Error checking saved user:', error);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
